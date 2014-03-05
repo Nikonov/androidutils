@@ -1,11 +1,6 @@
 package com.appmobileos.android.utils.file;
-
-import android.content.Context;
 import android.os.Environment;
-import android.util.Log;
-
 import com.appmobileos.android.utils.BuildConfig;
-
 import java.io.BufferedInputStream;
 import java.io.BufferedOutputStream;
 import java.io.ByteArrayInputStream;
@@ -91,7 +86,7 @@ public class FileUtils {
     }
 
 
-    public static InputStream openFile(File fileOpen) {
+    private static InputStream openFile(File fileOpen) {
         if (fileOpen == null || !fileOpen.exists()) return null;
         InputStream is = null;
         try {
@@ -120,21 +115,29 @@ public class FileUtils {
         return stream;
     }
 
-
+    /**
+     * @param file   the file will be added to archive
+     * @param zos    current zip archive
+     * @param buffer buffer used read byte from input stream
+     */
     public static void addToZipFile(File file, ZipOutputStream zos, byte[] buffer) throws IOException {
+        if (file == null || zos == null || buffer == null) {
+            throw new NullPointerException("file or zos or buffer == null. Now file = " + file + " zos = " + zos + " and check buffer params");
+        }
         if (BuildConfig.DEBUG) System.out.println("Writing '" + file.getPath() + "to zip file");
-        FileInputStream fis = new FileInputStream(file);
+        BufferedInputStream fis = new BufferedInputStream(new FileInputStream(file));
         ZipEntry zipEntry = new ZipEntry(file.getName());
         zos.putNextEntry(zipEntry);
+        BufferedOutputStream zipInBuffer = new BufferedOutputStream(zos);
         int length;
         while ((length = fis.read(buffer)) >= 0) {
-            zos.write(buffer, 0, length);
+            zipInBuffer.write(buffer, 0, length);
         }
         zos.closeEntry();
         fis.close();
     }
 
-   /* public static void copyDBFile(Context context, String databaseName) {
+  /*  public static void copyDBFile(Context context, String databaseName) {
         try {
             File database = new File("/data/data/" + context.getPackageName() + "/databases/" + databaseName);
             File copyDataBase = new File(Storages.getTempSmartGalleryDir(context) + "/" + databaseName);

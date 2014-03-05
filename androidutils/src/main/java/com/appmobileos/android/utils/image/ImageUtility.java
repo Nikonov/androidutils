@@ -7,7 +7,6 @@ import android.hardware.Camera.Size;
 import android.util.Log;
 import android.view.View;
 
-
 import com.appmobileos.android.utils.BuildConfig;
 
 import java.io.ByteArrayOutputStream;
@@ -224,7 +223,11 @@ final public class ImageUtility {
         return optimalSize;
     }
 
-    public static int calculateInSampleSize(BitmapFactory.Options options, int reqWidth, int reqHeight) {
+    /**
+     * This is method based on the exercise "Loading Large Bitmaps Efficiently".
+     * <a href="http://developer.android.com/training/displaying-bitmaps/load-bitmap.html#load-bitmap">More information</a>
+     */
+    private static int calculateInSampleSize(BitmapFactory.Options options, int reqWidth, int reqHeight) {
         final int realHeight = options.outHeight;
         final int realWidth = options.outWidth;
         int inSampleSize = 1;
@@ -232,7 +235,7 @@ final public class ImageUtility {
             // Calculate ratios of height and width to requested height and width
             final int heightRatio = Math.round((float) realHeight / (float) reqHeight);
             final int widthRatio = Math.round((float) realWidth / (float) reqWidth);
-            if(BuildConfig.DEBUG){
+            if (BuildConfig.DEBUG) {
                 Log.i(TAG, "REAL SIZE = " + realWidth + "x" + realHeight +
                         " smaller version = " + reqWidth + "x" + reqHeight +
                         " RATIO height = " + heightRatio + " RADIO width = " + widthRatio);
@@ -262,13 +265,20 @@ final public class ImageUtility {
         return BitmapFactory.decodeFile(pathFile, options);
     }
 
+    /**
+     * Info image
+     *
+     * @param filePath path file in local system
+     * @return int[] which include [0] == real width image and [1] == real height image or null
+     */
     public static int[] infoImage(String filePath) {
+        if (filePath == null) return null;
         int[] result = new int[2];
         BitmapFactory.Options options = new BitmapFactory.Options();
         options.inJustDecodeBounds = true;
         BitmapFactory.decodeFile(filePath, options);
-        result[0] = options.outHeight;
-        result[1] = options.outWidth;
+        result[0] = options.outWidth;
+        result[1] = options.outHeight;
         return result;
     }
 
