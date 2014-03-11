@@ -1,4 +1,4 @@
-package com.samsung.utils;
+package com.appmobileos.android.utils;
 
 import android.util.Log;
 

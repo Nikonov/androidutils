@@ -1,6 +1,9 @@
 package com.appmobileos.android.utils.file;
+
 import android.os.Environment;
+
 import com.appmobileos.android.utils.BuildConfig;
+
 import java.io.BufferedInputStream;
 import java.io.BufferedOutputStream;
 import java.io.ByteArrayInputStream;
@@ -71,6 +74,22 @@ public class FileUtils {
             }
             if (destination != null) {
                 destination.close();
+            }
+        }
+    }
+
+    /**
+     * Delete all files in directory
+     *
+     * @param path directory path
+     */
+    public static void clearDirectory(String path) {
+        if (path == null) return;
+        File file = new File(path);
+        File[] filesInDir = file.listFiles();
+        if (filesInDir != null) {
+            for (File fileInDir : filesInDir) {
+                fileInDir.delete();
             }
         }
     }
