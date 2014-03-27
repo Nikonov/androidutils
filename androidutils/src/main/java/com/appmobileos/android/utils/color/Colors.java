@@ -2,7 +2,6 @@ package com.appmobileos.android.utils.color;
 
 
 import android.graphics.Color;
-
 import java.util.Random;
 
 /**

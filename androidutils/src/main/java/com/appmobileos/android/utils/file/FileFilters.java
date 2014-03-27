@@ -39,4 +39,12 @@ public class FileFilters {
             return false;
         }
     }
+    /**
+     * Filter for folder file
+     */
+    public static class FolderFilter implements FileFilter {
+        public boolean accept(File file) {
+            return file.isDirectory();
+        }
+    }
 }

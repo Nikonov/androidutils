@@ -1,0 +1,18 @@
+package com.appmobileos.android.utils;
+
+import android.app.Activity;
+import android.os.Bundle;
+import android.widget.TextView;
+
+/**
+ * Created by anikonov on 3/27/14.
+ */
+public class MainActivity extends Activity {
+    @Override
+    protected void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+        TextView textView = new TextView(this);
+        textView.setText("AndroidUtils");
+        setContentView(textView);
+    }
+}
