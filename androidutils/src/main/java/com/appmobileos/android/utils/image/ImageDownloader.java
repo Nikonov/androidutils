@@ -5,7 +5,10 @@ import android.content.Context;
 import android.content.res.Resources;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
+import android.graphics.Canvas;
+import android.graphics.Paint;
 import android.graphics.drawable.BitmapDrawable;
+import android.graphics.drawable.ColorDrawable;
 import android.graphics.drawable.Drawable;
 import android.os.AsyncTask;
 import android.util.Log;
@@ -28,7 +31,7 @@ import java.util.Random;
  */
 public class ImageDownloader {
     private static final String TAG = "ImageDownloader";
-    public static final int COLOR_BLACK_OPACITY_5_PERCENTAGE = 0x0D000000;
+    public static final int COLOR_BLACK_OPACITY_5_PERCENTAGE = 0x1A000000;
     public static final int COUNT_IMAGES_FOUND_IN_SUBDIRECTORY = 5;
     private int mImageWidth = 100; //default value width in px
     private int mImageHeight = 100; //default value height in px
@@ -66,6 +69,7 @@ public class ImageDownloader {
         if (imageSize >= 0) {
             setImageSize(imageSize);
         }
+        mLoadingBitmap = initDefaultLoadingImage(imageSize, imageSize);
     }
 
     /**
@@ -265,22 +269,21 @@ public class ImageDownloader {
             if (isCancelled()) {
                 bitmap = null;
             }
-            if (imageViewReference != null) {
-                ImageView imageView = imageViewReference.get();
-                BitmapDownloaderTask downloaderTask = getBitmapDownloaderTask(imageView);
-                if ((this == downloaderTask)) {
-                    setImageBitmap(imageView, bitmap);
-                    if (imageView != null) {
-                        if (imageView.getVisibility() != View.VISIBLE) {
-                            imageView.setVisibility(View.VISIBLE);
-                        }
+            ImageView imageView = imageViewReference.get();
+            BitmapDownloaderTask downloaderTask = getBitmapDownloaderTask(imageView);
+            if ((this == downloaderTask)) {
+                setImageBitmap(imageView, bitmap);
+                if (imageView != null) {
+                    if (imageView.getVisibility() != View.VISIBLE) {
+                        imageView.setVisibility(View.VISIBLE);
                     }
-                    if (BuildConfig.DEBUG) {
-                        Log.d(TAG, "Image set in ImageView");
-                    }
+                }
+                if (BuildConfig.DEBUG) {
+                    Log.d(TAG, "Image set in ImageView");
                 }
             }
         }
+
     }
 
     /**
@@ -342,7 +345,7 @@ public class ImageDownloader {
     }
 
     private void setImageBitmap(ImageView imageView, Bitmap bitmap) {
-        if (imageView != null && bitmap != null) {
+        if (imageView != null) {
             if (mFadeInBitmap) {
                 ObjectAnimator animator = ObjectAnimator.ofFloat(imageView, "alpha", 0.0f, 1.0f);
                 animator.setDuration(FADE_IN_TIME);
@@ -372,5 +375,16 @@ public class ImageDownloader {
                 Log.d(TAG, "cancelWork - cancelled");
             }
         }
+    }
+
+    private Bitmap initDefaultLoadingImage(int width, int height) {
+        Paint paint = new Paint();
+        paint.setAntiAlias(true);
+        paint.setColor(COLOR_BLACK_OPACITY_5_PERCENTAGE);
+        paint.setStyle(Paint.Style.FILL);
+        Bitmap bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
+        Canvas canvas = new Canvas(bitmap);
+        canvas.drawRect(0, 0, width, height, paint);
+        return bitmap;
     }
 }
