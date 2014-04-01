@@ -11,6 +11,7 @@ import android.os.AsyncTask;
 import android.util.Log;
 import android.view.View;
 import android.widget.ImageView;
+
 import com.appmobileos.android.utils.BuildConfig;
 import com.appmobileos.android.utils.file.FileFilters;
 import com.nineoldandroids.animation.ObjectAnimator;
@@ -355,5 +356,21 @@ public class ImageDownloader {
 
     public boolean isDownloadDrawable(Drawable drawable) {
         return drawable != null && (drawable instanceof DownloadedDrawable);
+    }
+
+    /**
+     * Cancels any pending work attached to the provided ImageView.
+     *
+     * @param imageView
+     */
+    public static void cancelWork(ImageView imageView) {
+        final BitmapDownloaderTask bitmapWorkerTask = getBitmapDownloaderTask(imageView);
+        if (bitmapWorkerTask != null) {
+            bitmapWorkerTask.cancel(true);
+            if (BuildConfig.DEBUG) {
+                //  final Object bitmapData = bitmapWorkerTask.mData;
+                Log.d(TAG, "cancelWork - cancelled");
+            }
+        }
     }
 }
