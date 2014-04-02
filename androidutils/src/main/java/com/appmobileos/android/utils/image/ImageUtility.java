@@ -266,6 +266,20 @@ final public class ImageUtility {
     }
 
     /**
+     * This is method based on the exercise "Loading Large Bitmaps Efficiently".
+     * <a href="http://developer.android.com/training/displaying-bitmaps/load-bitmap.html#load-bitmap">More information</a>
+     */
+    public static Bitmap decodeSampledBitmapFromByte(byte[] data,
+                                                     int reqWidth, int reqHeight) {
+        BitmapFactory.Options options = new BitmapFactory.Options();
+        options.inJustDecodeBounds = true;
+        BitmapFactory.decodeByteArray(data, 0, data.length, options);
+        options.inJustDecodeBounds = false;
+        options.inSampleSize = calculateInSampleSize(options, reqWidth, reqHeight);
+        return BitmapFactory.decodeByteArray(data, 0, data.length, options);
+    }
+
+    /**
      * Info image
      *
      * @param filePath path file in local system
