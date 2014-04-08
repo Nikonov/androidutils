@@ -33,4 +33,27 @@ public class InternetUtil {
         return builder.toString();
 
     }
+
+   public static boolean isOnline(Context context) {
+        ConnectivityManager cm =
+                (ConnectivityManager) context.getSystemService(Context.CONNECTIVITY_SERVICE);
+        NetworkInfo activeNetwork = cm.getActiveNetworkInfo();
+        return activeNetwork != null && activeNetwork.isConnectedOrConnecting();
+    }
+
+    public static String createPostData(Map<String, Object> params) {
+        StringBuilder postData = new StringBuilder();
+        for (Map.Entry<String, Object> param : params.entrySet()) {
+            if (postData.length() != 0) postData.append("&");
+            try {
+                postData.append(URLEncoder.encode(param.getKey(), "UTF-8"));
+                postData.append("=");
+                postData.append(URLEncoder.encode(String.valueOf(param.getValue()), "UTF-8"));
+
+            } catch (UnsupportedEncodingException e) {
+                e.printStackTrace();
+            }
+        }
+        return postData.toString();
+    }
 }
