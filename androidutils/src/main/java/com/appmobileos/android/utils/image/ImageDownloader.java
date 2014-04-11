@@ -9,9 +9,11 @@ import android.graphics.Paint;
 import android.graphics.drawable.BitmapDrawable;
 import android.graphics.drawable.Drawable;
 import android.os.AsyncTask;
+import android.support.v4.app.FragmentManager;
 import android.util.Log;
 import android.view.View;
 import android.widget.ImageView;
+
 import com.appmobileos.android.utils.BuildConfig;
 import com.appmobileos.android.utils.file.FileFilters;
 import com.nineoldandroids.animation.ObjectAnimator;
@@ -38,7 +40,12 @@ public class ImageDownloader {
     private Random mRandom;
     private Resources mResources;
     private Bitmap mLoadingBitmap;
-
+    private ImageCache mImageCache;
+    private ImageCache.ImageCacheParameters mImageCacheParams;
+    private static final int MESSAGE_CLEAR = 0;
+    private static final int MESSAGE_INIT_DISK_CACHE = 1;
+    private static final int MESSAGE_FLUSH = 2;
+    private static final int MESSAGE_CLOSE = 3;
     private HashMap<String, List<Integer>> mPreviousValue = new HashMap<String, List<Integer>>(IMAGE_VIEW_COUNT_IMAGES);
 
     /**
@@ -79,7 +86,14 @@ public class ImageDownloader {
      * @see com.appmobileos.android.utils.image.ImageDownloader.MODE_LOADING_IMAGES
      */
     public void loaderBitmap(String path, ImageView imageView, MODE_LOADING_IMAGES loading_images) {
-        if (cancelPotentialDownloaderTask(path, imageView)) {
+        if (path == null) return;
+        BitmapDrawable value = null;
+        if (mImageCache != null) {
+            value = mImageCache.getBitmapFromMemCache(String.valueOf(path));
+        }
+        if (value != null) {
+            imageView.setImageDrawable(value);
+        } else if (cancelPotentialDownloaderTask(path, imageView)) {
             BitmapDownloaderTask task = new BitmapDownloaderTask(imageView, loading_images);
             DownloadedDrawable downloadDrawable = new DownloadedDrawable(mResources, mLoadingBitmap, task);
             imageView.setImageDrawable(downloadDrawable);
@@ -243,21 +257,33 @@ public class ImageDownloader {
         @Override
         protected Bitmap doInBackground(String... params) {
             if (params == null || params.length == 0) return null;
-            Bitmap result;
             pathImageFile = params[0];
-            switch (loading_images) {
-                case LOADING_IMAGE:
-                    result = createBitmap(pathImageFile);
-                    break;
-                case LOADING_RANDOM_IMAGE_FROM_DIRECTORY:
-                    result = createRandomBitmap(pathImageFile, false);
-                    break;
-                case LOADING_RANDOM_IMAGE_FROM_DIRECTORY_RECURSION:
-                    result = createRandomBitmap(pathImageFile, true);
-                    break;
-                default:
-                    throw new IllegalArgumentException("Don't support mode loading images = " + loading_images);
+            Bitmap result = null;
+            final String key = String.valueOf(pathImageFile);
+            if (mImageCache != null && !isCancelled() && getAttachedImageView() != null) {
+                result = mImageCache.getBitmapFromDiskCache(key);
             }
+            if (result == null) {
+                switch (loading_images) {
+                    case LOADING_IMAGE:
+                        result = createBitmap(pathImageFile);
+                        break;
+                    case LOADING_RANDOM_IMAGE_FROM_DIRECTORY:
+                        result = createRandomBitmap(pathImageFile, false);
+                        break;
+                    case LOADING_RANDOM_IMAGE_FROM_DIRECTORY_RECURSION:
+                        result = createRandomBitmap(pathImageFile, true);
+                        break;
+                    default:
+                        throw new IllegalArgumentException("Don't support mode loading images = " + loading_images);
+                }
+            }
+            if (result != null) {
+                if (mImageCache != null) {
+                    mImageCache.addBitmapToCache(key, new BitmapDrawable(mResources, result));
+                }
+            }
+
             return result;
         }
 
@@ -266,7 +292,7 @@ public class ImageDownloader {
             if (isCancelled()) {
                 bitmap = null;
             }
-            ImageView imageView = imageViewReference.get();
+            ImageView imageView = getAttachedImageView();
             BitmapDownloaderTask downloaderTask = getBitmapDownloaderTask(imageView);
             if ((this == downloaderTask)) {
                 setImageBitmap(imageView, bitmap);
@@ -281,6 +307,20 @@ public class ImageDownloader {
             }
         }
 
+        /**
+         * Returns the ImageView associated with this task as long as the ImageView's task still
+         * points to this task as well. Returns null otherwise.
+         */
+        private ImageView getAttachedImageView() {
+            final ImageView imageView = imageViewReference.get();
+            final BitmapDownloaderTask bitmapWorkerTask = getBitmapDownloaderTask(imageView);
+
+            if (this == bitmapWorkerTask) {
+                return imageView;
+            }
+
+            return null;
+        }
     }
 
     /**
@@ -383,5 +423,78 @@ public class ImageDownloader {
         Canvas canvas = new Canvas(bitmap);
         canvas.drawRect(0, 0, width, height, paint);
         return bitmap;
+    }
+
+    /**
+     * Adds an {@link ImageCache} to this {@link com.appmobileos.android.utils.image.ImageDownloader} to handle disk and memory bitmap
+     * caching.
+     *
+     * @param fragmentManager
+     * @param cacheParams     The cache parameters to use for the image cache.
+     */
+    public void addImageCache(FragmentManager fragmentManager,
+                              ImageCache.ImageCacheParameters cacheParams) {
+        mImageCacheParams = cacheParams;
+        mImageCache = ImageCache.getInstance(fragmentManager, mImageCacheParams);
+        new CacheAsyncTask().execute(MESSAGE_INIT_DISK_CACHE);
+    }
+
+    protected class CacheAsyncTask extends AsyncTask<Object, Void, Void> {
+
+        @Override
+        protected Void doInBackground(Object... params) {
+            switch ((Integer) params[0]) {
+                case MESSAGE_CLEAR:
+                    clearCacheInternal();
+                    break;
+                case MESSAGE_INIT_DISK_CACHE:
+                    initDiskCacheInternal();
+                    break;
+                case MESSAGE_FLUSH:
+                    flushCacheInternal();
+                    break;
+                case MESSAGE_CLOSE:
+                    closeCacheInternal();
+                    break;
+            }
+            return null;
+        }
+    }
+
+    protected void initDiskCacheInternal() {
+        if (mImageCache != null) {
+            mImageCache.initDiskCache();
+        }
+    }
+
+    protected void clearCacheInternal() {
+        if (mImageCache != null) {
+            mImageCache.clearCache();
+        }
+    }
+
+    protected void flushCacheInternal() {
+        if (mImageCache != null) {
+            mImageCache.flush();
+        }
+    }
+
+    protected void closeCacheInternal() {
+        if (mImageCache != null) {
+            mImageCache.close();
+            mImageCache = null;
+        }
+    }
+
+    public void clearCache() {
+        new CacheAsyncTask().execute(MESSAGE_CLEAR);
+    }
+
+    public void flushCache() {
+        new CacheAsyncTask().execute(MESSAGE_FLUSH);
+    }
+
+    public void closeCache() {
+        new CacheAsyncTask().execute(MESSAGE_CLOSE);
     }
 }

@@ -56,6 +56,8 @@ public class ImageCache {
 
     private DiskLruCache mDiskLruCache;
 
+
+
     /**
      * Create a new ImageCache object using the specified parameters.
      * This should not be called directly by other classes, instead use
