@@ -3,7 +3,7 @@ package com.appmobileos.android.utils;
 import android.os.Build;
 
 /**
- * Created by anikonov on 3/27/14.
+ * Helper class which help to understand version Android on device
  */
 public class AndroidVersion {
     public static boolean hasFroyo() {

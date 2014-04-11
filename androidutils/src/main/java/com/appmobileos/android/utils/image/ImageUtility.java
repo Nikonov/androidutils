@@ -11,6 +11,7 @@ import com.appmobileos.android.utils.BuildConfig;
 
 import java.io.ByteArrayOutputStream;
 import java.io.File;
+import java.io.FileDescriptor;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
@@ -277,6 +278,38 @@ final public class ImageUtility {
         options.inJustDecodeBounds = false;
         options.inSampleSize = calculateInSampleSize(options, reqWidth, reqHeight);
         return BitmapFactory.decodeByteArray(data, 0, data.length, options);
+    }
+
+    /**
+     * Decode and sample down a bitmap from a file input stream to the requested width and height.
+     *
+     * @param fileDescriptor The file descriptor to read from
+     * @param reqWidth       The requested width of the resulting bitmap
+     * @param reqHeight      The requested height of the resulting bitmap
+     * @param cache          The ImageCache used to find candidate bitmaps for use with inBitmap
+     * @return A bitmap sampled down from the original with the same aspect ratio and dimensions
+     * that are equal to or greater than the requested width and height
+     */
+    public static Bitmap decodeSampledBitmapFromDescriptor(
+            FileDescriptor fileDescriptor, int reqWidth, int reqHeight, ImageCache cache) {
+
+        // First decode with inJustDecodeBounds=true to check dimensions
+        final BitmapFactory.Options options = new BitmapFactory.Options();
+        options.inJustDecodeBounds = true;
+        BitmapFactory.decodeFileDescriptor(fileDescriptor, null, options);
+
+        // Calculate inSampleSize
+        options.inSampleSize = calculateInSampleSize(options, reqWidth, reqHeight);
+
+        // Decode bitmap with inSampleSize set
+        options.inJustDecodeBounds = false;
+
+        // If we're running on Honeycomb or newer, try to use inBitmap
+/*        if (Utils.hasHoneycomb()) {
+            addInBitmapOptions(options, cache);
+        }*/
+
+        return BitmapFactory.decodeFileDescriptor(fileDescriptor, null, options);
     }
 
     /**

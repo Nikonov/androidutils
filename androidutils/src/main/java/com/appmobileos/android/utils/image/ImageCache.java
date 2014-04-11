@@ -7,6 +7,7 @@ import android.graphics.drawable.BitmapDrawable;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Environment;
+import android.os.StatFs;
 import android.support.v4.app.Fragment;
 import android.support.v4.app.FragmentManager;
 import android.support.v4.util.LruCache;
@@ -16,6 +17,14 @@ import com.appmobileos.android.utils.AndroidVersion;
 import com.appmobileos.android.utils.BuildConfig;
 
 import java.io.File;
+import java.io.FileDescriptor;
+import java.io.FileInputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.util.Objects;
 
 /**
  * Created by anikonov on 4/10/14.
@@ -42,6 +51,11 @@ public class ImageCache {
 
     private LruCache<String, BitmapDrawable> mMemoryCache;
 
+    private final Object mDiskCacheLock = new Object();
+    private boolean mDiskCacheStarting = true;
+
+    private DiskLruCache mDiskLruCache;
+
     /**
      * Create a new ImageCache object using the specified parameters.
      * This should not be called directly by other classes, instead use
@@ -67,6 +81,9 @@ public class ImageCache {
             }
 
             mMemoryCache = new LruCache<String, BitmapDrawable>(mCacheParams.memCacheSize) {
+
+                // TODO skipped working with RecyclingBitmapDrawable
+
                 @Override
                 protected int sizeOf(String key, BitmapDrawable value) {
                     final int bitmapSize = getBitmapSize(value) / 1024;
@@ -76,7 +93,271 @@ public class ImageCache {
 
         }
         if (parameters.initDiskCacheOnCreate) {
-            //TODO init dist cache
+            initDiskCache();
+        }
+    }
+
+    /**
+     * Initializer the disk cache.
+     * That this includes disk access so this should not be executed on the main/UI thread
+     * and must have permission write to external storage.
+     *
+     * @see android.Manifest.permission#WRITE_EXTERNAL_STORAGE
+     */
+    public void initDiskCache() {
+        synchronized (mDiskCacheLock) {
+            if (mDiskLruCache == null || mDiskLruCache.isClosed()) {
+                File diskCacheDir = mCacheParams.diskCacheDir;
+                if (mCacheParams.diskCacheEnable && diskCacheDir != null) {
+                    if (!diskCacheDir.exists()) {
+                        diskCacheDir.mkdirs();
+
+                    }
+                    if (getUsableSpace(diskCacheDir) > mCacheParams.diskCacheSize) {
+                        try {
+                            mDiskLruCache = DiskLruCache.open(diskCacheDir, 1, 1, mCacheParams.diskCacheSize);
+                            if (BuildConfig.DEBUG) {
+                                Log.i(TAG, "Disc cache initialized");
+                            }
+                        } catch (IOException e) {
+                            mCacheParams.diskCacheDir = null;
+                            e.printStackTrace();
+                            Log.e(TAG, "initDiskCache - " + e);
+                        }
+                    }
+                }
+
+            }
+            mDiskCacheStarting = false;
+            mDiskCacheLock.notifyAll();
+        }
+    }
+
+    /**
+     * Check how much usable space is available at a given path.
+     *
+     * @param path The path to check
+     * @return The space available in bytes
+     */
+    @TargetApi(Build.VERSION_CODES.GINGERBREAD)
+    public static long getUsableSpace(File path) {
+        if (AndroidVersion.hasGingerbread()) {
+            return path.getUsableSpace();
+        }
+        final StatFs statFs = new StatFs(path.getPath());
+        return (long) statFs.getBlockSize() * (long) statFs.getAvailableBlocks();
+    }
+
+    /**
+     * Adds a bitmap to both memory and disk cache.
+     *
+     * @param key   Unique identifier for the bitmap to store
+     * @param value The  bitmap drawable to store
+     */
+    public void addBitmapToCache(String key, BitmapDrawable value) {
+        if (key == null || value == null) return;
+        //Add to memory cache
+        if (mMemoryCache != null) {
+            // TODO skipped working with RecyclingBitmapDrawable
+            mMemoryCache.put(key, value);
+        }
+
+        synchronized (mDiskCacheLock) {
+            if (mDiskLruCache != null) {
+                final String keyDisk = hashKeyForDisk(key);
+                OutputStream outputStream = null;
+                try {
+                    DiskLruCache.Snapshot snapshot = mDiskLruCache.get(keyDisk);
+                    if (snapshot != null) {
+                        final DiskLruCache.Editor editor = mDiskLruCache.edit(keyDisk);
+                        if (editor != null) {
+                            outputStream = editor.newOutputStream(DISK_CACHE_INDEX);
+                            value.getBitmap().compress(mCacheParams.compressFormat, mCacheParams.compressQuality, outputStream);
+                            editor.commit();
+                            outputStream.close();
+                        } else {
+                            snapshot.getInputStream(DISK_CACHE_INDEX).close();
+                        }
+                    }
+                } catch (IOException e) {
+                    Log.e(TAG, "addBitmapToCache - " + e);
+                    e.printStackTrace();
+                } finally {
+                    if (outputStream != null) {
+                        try {
+                            outputStream.close();
+                        } catch (IOException e) {
+                            e.printStackTrace();
+                        }
+                    }
+                }
+            }
+        }
+
+    }
+
+    /**
+     * Get from disk cache.
+     *
+     * @param key Unique identifier for which item to get
+     * @return The bitmap if found in cache, null otherwise
+     */
+    public Bitmap getBitmapFromDiskCache(String key) {
+        final String keyDisk = hashKeyForDisk(key);
+        Bitmap bitmap = null;
+        synchronized (mDiskCacheLock) {
+            while (mDiskCacheStarting) {
+                try {
+                    mDiskCacheLock.wait();
+                } catch (InterruptedException e) {
+                    e.printStackTrace();
+                }
+            }
+            if (mDiskLruCache != null) {
+                InputStream inputStream = null;
+                try {
+                    DiskLruCache.Snapshot snapshot = mDiskLruCache.get(keyDisk);
+                    if (snapshot != null) {
+                        if (BuildConfig.DEBUG) {
+                            Log.i(TAG, "Disk cache hit");
+                        }
+                        inputStream = snapshot.getInputStream(DISK_CACHE_INDEX);
+                        if (inputStream != null) {
+                            FileDescriptor fd = ((FileInputStream) inputStream).getFD();
+                            bitmap = ImageUtility.decodeSampledBitmapFromDescriptor(fd, Integer.MAX_VALUE, Integer.MIN_VALUE, this);
+                        }
+                    }
+                } catch (IOException e) {
+                    e.printStackTrace();
+                    Log.e(TAG, "getBitmapFromDiskCache - " + e);
+                } finally {
+                    if (inputStream != null) {
+                        try {
+                            inputStream.close();
+                        } catch (IOException e) {
+                            e.printStackTrace();
+                        }
+                    }
+                }
+
+            }
+            return bitmap;
+        }
+    }
+
+    /**
+     * A hashing method that changes a string (like a URL) into a hash suitable for using as a
+     * disk filename.
+     */
+    public static String hashKeyForDisk(String key) {
+        String cacheKey;
+        try {
+            final MessageDigest mDigest = MessageDigest.getInstance("MD5");
+            mDigest.update(key.getBytes());
+            cacheKey = byteToHexString(mDigest.digest());
+        } catch (NoSuchAlgorithmException e) {
+            cacheKey = String.valueOf(key.hashCode());
+        }
+        return cacheKey;
+    }
+
+    private static String byteToHexString(byte[] bytes) {
+        // http://stackoverflow.com/questions/332079
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < bytes.length; i++) {
+            String hex = Integer.toHexString(0xFF & bytes[i]);
+            if (hex.length() == 1) {
+                sb.append('0');
+            }
+            sb.append(hex);
+        }
+        return sb.toString();
+    }
+
+    /**
+     * Get from memory cache
+     *
+     * @param key Unique identifier for which item to get
+     * @return The bitmap drawable if found in cache, null otherwise
+     */
+    public BitmapDrawable getBitmapFromMemCache(String key) {
+        BitmapDrawable bitmapDrawable = null;
+        if (mMemoryCache != null) {
+            bitmapDrawable = mMemoryCache.get(key);
+        }
+        if (BuildConfig.DEBUG && bitmapDrawable != null) {
+            Log.d(TAG, "Memory cache hit");
+        }
+        return bitmapDrawable;
+    }
+
+    /**
+     * Clears both the memory and disk cache associated with this ImageCache object. Note that
+     * this includes disk access so this should not be executed on the main/UI thread.
+     */
+    public void clearCache() {
+        if (mMemoryCache != null) {
+            mMemoryCache.evictAll();
+            if (BuildConfig.DEBUG) {
+                Log.i(TAG, "Memory cache cleared");
+            }
+        }
+        synchronized (mDiskCacheLock) {
+            mDiskCacheStarting = true;
+            if (mDiskLruCache != null && !mDiskLruCache.isClosed()) {
+                try {
+                    mDiskLruCache.delete();
+                    if (BuildConfig.DEBUG) {
+                        Log.d(TAG, "Disk cache cleared");
+                    }
+                } catch (IOException e) {
+                    e.printStackTrace();
+                    Log.e(TAG, "clearCache - " + e);
+                }
+                mDiskLruCache = null;
+                initDiskCache();
+            }
+        }
+    }
+
+    /**
+     * Flushes the disk cache associated with this ImageCache object. Note that this includes
+     * disk access so this should not be executed on the main/UI thread.
+     */
+    public void flush() {
+        synchronized (mDiskCacheLock) {
+            if (mDiskLruCache != null) {
+                try {
+                    mDiskLruCache.flush();
+                    if (BuildConfig.DEBUG) {
+                        Log.d(TAG, "Disk cache flushed");
+                    }
+                } catch (IOException e) {
+                    Log.e(TAG, "flush - " + e);
+                }
+            }
+        }
+    }
+
+    /**
+     * Closes the disk cache associated with this ImageCache object. Note that this includes
+     * disk access so this should not be executed on the main/UI thread.
+     */
+    public void close() {
+        synchronized (mDiskCacheLock) {
+            if (mDiskLruCache != null) {
+                try {
+                    if (!mDiskLruCache.isClosed()) {
+                        mDiskLruCache.close();
+                        mDiskLruCache = null;
+                        if (BuildConfig.DEBUG) {
+                            Log.d(TAG, "Disk cache closed");
+                        }
+                    }
+                } catch (IOException e) {
+                    Log.e(TAG, "close - " + e);
+                }
+            }
         }
     }
 
