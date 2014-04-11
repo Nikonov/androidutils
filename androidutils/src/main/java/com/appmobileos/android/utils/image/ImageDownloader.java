@@ -1,6 +1,5 @@
 package com.appmobileos.android.utils.image;
 
-
 import android.content.Context;
 import android.content.res.Resources;
 import android.graphics.Bitmap;
@@ -8,13 +7,11 @@ import android.graphics.BitmapFactory;
 import android.graphics.Canvas;
 import android.graphics.Paint;
 import android.graphics.drawable.BitmapDrawable;
-import android.graphics.drawable.ColorDrawable;
 import android.graphics.drawable.Drawable;
 import android.os.AsyncTask;
 import android.util.Log;
 import android.view.View;
 import android.widget.ImageView;
-
 import com.appmobileos.android.utils.BuildConfig;
 import com.appmobileos.android.utils.file.FileFilters;
 import com.nineoldandroids.animation.ObjectAnimator;
