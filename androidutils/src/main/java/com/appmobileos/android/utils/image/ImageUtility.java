@@ -3,11 +3,13 @@ package com.appmobileos.android.utils.image;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Canvas;
+import android.graphics.Matrix;
 import android.hardware.Camera.Size;
 import android.util.Log;
 import android.view.View;
 
 import com.appmobileos.android.utils.BuildConfig;
+import com.appmobileos.android.utils.DebugConfig;
 
 import java.io.ByteArrayOutputStream;
 import java.io.File;
@@ -21,6 +23,7 @@ import java.util.List;
 final public class ImageUtility {
     public static final int READ_BUFFER_SIZE = 32 * 1024;  //32KB
     public static final String TAG = "ImageUtility";
+
 
     /**
      * @param path
@@ -277,6 +280,9 @@ final public class ImageUtility {
         BitmapFactory.decodeByteArray(data, 0, data.length, options);
         options.inJustDecodeBounds = false;
         options.inSampleSize = calculateInSampleSize(options, reqWidth, reqHeight);
+        if (DebugConfig.WRITE_LOGS) {
+            Log.i(TAG, "Method - decodeSampledBitmapFromByte sampleSize = " + options.inSampleSize);
+        }
         return BitmapFactory.decodeByteArray(data, 0, data.length, options);
     }
 
@@ -419,6 +425,14 @@ final public class ImageUtility {
         }
 
         return Bitmap.createBitmap(blurredBitmap, width, height, Bitmap.Config.RGB_565);
+    }
+
+    public static Bitmap rotate(Bitmap bitmap, int degree) {
+        int width = bitmap.getWidth();
+        int height = bitmap.getHeight();
+        Matrix matrix = new Matrix();
+        matrix.postRotate(degree);
+        return Bitmap.createBitmap(bitmap, 0, 0, width, height, matrix, true);
     }
 
 }

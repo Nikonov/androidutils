@@ -1,4 +1,4 @@
-package com.appmobileos.android.utils;
+package com.appmobileos.android.utils.network;
 
 import android.util.Log;
 
