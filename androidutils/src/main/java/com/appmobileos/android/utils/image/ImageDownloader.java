@@ -18,8 +18,14 @@ import com.appmobileos.android.utils.BuildConfig;
 import com.appmobileos.android.utils.file.FileFilters;
 import com.nineoldandroids.animation.ObjectAnimator;
 
+import java.io.BufferedInputStream;
 import java.io.File;
+import java.io.IOException;
+import java.io.InputStream;
 import java.lang.ref.WeakReference;
+import java.net.HttpURLConnection;
+import java.net.MalformedURLException;
+import java.net.URL;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -29,38 +35,24 @@ import java.util.Random;
  * Helper class which fast load image in gridView or listView
  */
 public class ImageDownloader {
-    private static final String TAG = "ImageDownloader";
     public static final int COLOR_BLACK_OPACITY_5_PERCENTAGE = 0x1A000000;
     public static final int COUNT_IMAGES_FOUND_IN_SUBDIRECTORY = 5;
+    private static final String TAG = "ImageDownloader";
+    private static final int IMAGE_VIEW_COUNT_IMAGES = 4;
+    private HashMap<String, List<Integer>> mPreviousValue = new HashMap<String, List<Integer>>(IMAGE_VIEW_COUNT_IMAGES);
+    private static final int FADE_IN_TIME = 500;
+    private static final int MESSAGE_CLEAR = 0;
+    private static final int MESSAGE_INIT_DISK_CACHE = 1;
+    private static final int MESSAGE_FLUSH = 2;
+    private static final int MESSAGE_CLOSE = 3;
     private int mImageWidth = 100; //default value width in px
     private int mImageHeight = 100; //default value height in px
-    private static final int IMAGE_VIEW_COUNT_IMAGES = 4;
-    private static final int FADE_IN_TIME = 500;
     private boolean mFadeInBitmap = true;
     private Random mRandom;
     private Resources mResources;
     private Bitmap mLoadingBitmap;
     private ImageCache mImageCache;
     private ImageCache.ImageCacheParameters mImageCacheParams;
-    private static final int MESSAGE_CLEAR = 0;
-    private static final int MESSAGE_INIT_DISK_CACHE = 1;
-    private static final int MESSAGE_FLUSH = 2;
-    private static final int MESSAGE_CLOSE = 3;
-    private HashMap<String, List<Integer>> mPreviousValue = new HashMap<String, List<Integer>>(IMAGE_VIEW_COUNT_IMAGES);
-
-    /**
-     * Modes loading images:
-     * <p>LOADING_IMAGE - Loading one image</p>
-     * <p>LOADING_RANDOM_IMAGE_FROM_DIRECTORY - Loading random image from directory</p>
-     * <p>LOADING_RANDOM_IMAGE_FROM_DIRECTORY_RECURSION - Loading random image from directory and if not found images (in root directory)
-     * will be open subdirectory and search images. If found COUNT_IMAGES_FOUND_IN_SUBDIRECTORY images, search images stop</p>
-     */
-    public enum MODE_LOADING_IMAGES {
-        LOADING_IMAGE,
-        LOADING_RANDOM_IMAGE_FROM_DIRECTORY,
-        LOADING_RANDOM_IMAGE_FROM_DIRECTORY_RECURSION,
-
-    }
 
     /**
      * @param imageSize target image size (width and height will be the same).
@@ -74,6 +66,58 @@ public class ImageDownloader {
             setImageSize(imageSize);
         }
         mLoadingBitmap = initDefaultLoadingImage(imageSize, imageSize);
+    }
+
+    /**
+     * Returns true if the current download has been canceled or if there was no download in
+     * progress on this image view.
+     * Returns false if the download in progress deals with the same url. The download is not
+     * stopped in that case.
+     */
+    public static boolean cancelPotentialDownloaderTask(String pathImage, ImageView imageView) {
+        BitmapDownloaderTask task = getBitmapDownloaderTask(imageView);
+        if (task != null) {
+            String pathBitmap = task.pathImageFile;
+            if ((pathBitmap == null) || (!pathBitmap.equals(pathImage))) {
+                task.cancel(true);
+            } else {
+                // The same pathImage is already being downloaded.
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /**
+     * @param imageView Any imageView
+     * @return Retrieve the currently active download task (if any) associated with this imageView.
+     * null if there is no such task.
+     */
+    private static BitmapDownloaderTask getBitmapDownloaderTask(ImageView imageView) {
+        if (imageView != null) {
+            Drawable drawable = imageView.getDrawable();
+            if (drawable instanceof DownloadedDrawable) {
+                DownloadedDrawable downloadedDrawable = (DownloadedDrawable) drawable;
+                return downloadedDrawable.getBitmapDownloaderTask();
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Cancels any pending work attached to the provided ImageView.
+     *
+     * @param imageView
+     */
+    public static void cancelWork(ImageView imageView) {
+        final BitmapDownloaderTask bitmapWorkerTask = getBitmapDownloaderTask(imageView);
+        if (bitmapWorkerTask != null) {
+            bitmapWorkerTask.cancel(true);
+            if (BuildConfig.DEBUG) {
+                //  final Object bitmapData = bitmapWorkerTask.mData;
+                Log.d(TAG, "cancelWork - cancelled");
+            }
+        }
     }
 
     /**
@@ -141,6 +185,56 @@ public class ImageDownloader {
             }
         }
         return resultImage;
+    }
+
+    private Bitmap downloadAndCreateBitmap(String url) {
+        Bitmap result = null;
+        try {
+            HttpURLConnection preparationConnection = null;
+            BufferedInputStream preparationData = null;
+            HttpURLConnection imageConnection = null;
+            BufferedInputStream imageData = null;
+            try {
+                preparationConnection = getConnectionWithImageData(url);
+                if (preparationConnection != null) {
+                    preparationData = new BufferedInputStream(preparationConnection.getInputStream());
+                    BitmapFactory.Options options = ImageUtility.preparationOptions(preparationData, mImageWidth, mImageHeight);
+                    imageConnection = getConnectionWithImageData(url);
+                    imageData = new BufferedInputStream(imageConnection.getInputStream());
+                    result = BitmapFactory.decodeStream(imageData, null, options);
+                }
+
+            } finally {
+                if (preparationData != null) preparationData.close();
+                if (preparationConnection != null) preparationConnection.disconnect();
+                if (imageConnection != null) imageConnection.disconnect();
+                if (imageData != null) imageData.close();
+            }
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+        return result;
+
+    }
+
+    private HttpURLConnection getConnectionWithImageData(String url) {
+        if (url != null) {
+            try {
+                URL urlImage;
+                HttpURLConnection connection;
+                urlImage = new URL(url);
+                connection = (HttpURLConnection) urlImage.openConnection();
+                connection.setRequestMethod("GET");
+                connection.setUseCaches(false);
+                connection.connect();
+                return connection;
+            } catch (MalformedURLException e) {
+                e.printStackTrace();
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+        }
+        return null;
     }
 
     private Bitmap createRandomBitmapRecursion(String path) {
@@ -241,13 +335,128 @@ public class ImageDownloader {
         this.mLoadingBitmap = BitmapFactory.decodeResource(mResources, resId);
     }
 
+    private void setImageBitmap(ImageView imageView, Bitmap bitmap) {
+        if (imageView != null) {
+            if (mFadeInBitmap) {
+                ObjectAnimator animator = ObjectAnimator.ofFloat(imageView, "alpha", 0.0f, 1.0f);
+                animator.setDuration(FADE_IN_TIME);
+                imageView.setImageBitmap(bitmap);
+                animator.start();
+            } else {
+                imageView.setImageBitmap(bitmap);
+            }
+        }
+    }
+
+    public boolean isDownloadDrawable(Drawable drawable) {
+        return drawable != null && (drawable instanceof DownloadedDrawable);
+    }
+
+    private Bitmap initDefaultLoadingImage(int width, int height) {
+        Paint paint = new Paint();
+        paint.setAntiAlias(true);
+        paint.setColor(COLOR_BLACK_OPACITY_5_PERCENTAGE);
+        paint.setStyle(Paint.Style.FILL);
+        Bitmap bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
+        Canvas canvas = new Canvas(bitmap);
+        canvas.drawRect(0, 0, width, height, paint);
+        return bitmap;
+    }
+
+    /**
+     * Adds an {@link ImageCache} to this {@link com.appmobileos.android.utils.image.ImageDownloader} to handle disk and memory bitmap
+     * caching.
+     *
+     * @param fragmentManager
+     * @param cacheParams     The cache parameters to use for the image cache.
+     */
+    public void addImageCache(FragmentManager fragmentManager,
+                              ImageCache.ImageCacheParameters cacheParams) {
+        mImageCacheParams = cacheParams;
+        mImageCache = ImageCache.getInstance(fragmentManager, mImageCacheParams);
+        new CacheAsyncTask().execute(MESSAGE_INIT_DISK_CACHE);
+    }
+
+    protected void initDiskCacheInternal() {
+        if (mImageCache != null) {
+            mImageCache.initDiskCache();
+        }
+    }
+
+    protected void clearCacheInternal() {
+        if (mImageCache != null) {
+            mImageCache.clearCache();
+        }
+    }
+
+    protected void flushCacheInternal() {
+        if (mImageCache != null) {
+            mImageCache.flush();
+        }
+    }
+
+    protected void closeCacheInternal() {
+        if (mImageCache != null) {
+            mImageCache.close();
+            mImageCache = null;
+        }
+    }
+
+    public void clearCache() {
+        new CacheAsyncTask().execute(MESSAGE_CLEAR);
+    }
+
+    public void flushCache() {
+        new CacheAsyncTask().execute(MESSAGE_FLUSH);
+    }
+
+    public void closeCache() {
+        new CacheAsyncTask().execute(MESSAGE_CLOSE);
+    }
+
+    /**
+     * Modes loading images:
+     * <p>LOADING_IMAGE - Loading one image</p>
+     * <p>LOADING_RANDOM_IMAGE_FROM_DIRECTORY - Loading random image from directory</p>
+     * <p>LOADING_RANDOM_IMAGE_FROM_DIRECTORY_RECURSION - Loading random image from directory and if not found images (in root directory)
+     * will be open subdirectory and search images. If found COUNT_IMAGES_FOUND_IN_SUBDIRECTORY images, search images stop</p>
+     */
+    public enum MODE_LOADING_IMAGES {
+        LOADING_IMAGE,
+        LOADING_RANDOM_IMAGE_FROM_DIRECTORY,
+        LOADING_RANDOM_IMAGE_FROM_DIRECTORY_RECURSION,
+        LOADINT_URL
+
+    }
+
+    /**
+     * A fake Drawable that will be attached to the imageView while the download is in progress.
+     * <p/>
+     * <p>Contains a reference to the actual download task, so that a download task can be stopped
+     * if a new binding is required, and makes sure that only the last started download process can
+     * bind its result, independently of the download finish order.</p>
+     */
+    static class DownloadedDrawable extends BitmapDrawable {
+        private final WeakReference<BitmapDownloaderTask> bitmapDownloaderTaskReference;
+
+        public DownloadedDrawable(Resources res, Bitmap loaderBitmap, BitmapDownloaderTask bitmapDownloaderTask) {
+            super(res, loaderBitmap);
+            bitmapDownloaderTaskReference =
+                    new WeakReference<BitmapDownloaderTask>(bitmapDownloaderTask);
+        }
+
+        public BitmapDownloaderTask getBitmapDownloaderTask() {
+            return bitmapDownloaderTaskReference.get();
+        }
+    }
+
     /**
      * The actual AsyncTask that will asynchronously download the image.
      */
     private class BitmapDownloaderTask extends AsyncTask<String, Void, Bitmap> {
-        private String pathImageFile = null;
         private final MODE_LOADING_IMAGES loading_images;
         private final WeakReference<ImageView> imageViewReference;
+        private String pathImageFile = null;
 
         private BitmapDownloaderTask(ImageView imageView, MODE_LOADING_IMAGES loading_images) {
             this.loading_images = loading_images;
@@ -273,6 +482,9 @@ public class ImageDownloader {
                         break;
                     case LOADING_RANDOM_IMAGE_FROM_DIRECTORY_RECURSION:
                         result = createRandomBitmap(pathImageFile, true);
+                        break;
+                    case LOADINT_URL:
+                        result = downloadAndCreateBitmap(pathImageFile);
                         break;
                     default:
                         throw new IllegalArgumentException("Don't support mode loading images = " + loading_images);
@@ -323,122 +535,6 @@ public class ImageDownloader {
         }
     }
 
-    /**
-     * Returns true if the current download has been canceled or if there was no download in
-     * progress on this image view.
-     * Returns false if the download in progress deals with the same url. The download is not
-     * stopped in that case.
-     */
-    public static boolean cancelPotentialDownloaderTask(String pathImage, ImageView imageView) {
-        BitmapDownloaderTask task = getBitmapDownloaderTask(imageView);
-        if (task != null) {
-            String pathBitmap = task.pathImageFile;
-            if ((pathBitmap == null) || (!pathBitmap.equals(pathImage))) {
-                task.cancel(true);
-            } else {
-                // The same pathImage is already being downloaded.
-                return false;
-            }
-        }
-        return true;
-    }
-
-
-    /**
-     * @param imageView Any imageView
-     * @return Retrieve the currently active download task (if any) associated with this imageView.
-     * null if there is no such task.
-     */
-    private static BitmapDownloaderTask getBitmapDownloaderTask(ImageView imageView) {
-        if (imageView != null) {
-            Drawable drawable = imageView.getDrawable();
-            if (drawable instanceof DownloadedDrawable) {
-                DownloadedDrawable downloadedDrawable = (DownloadedDrawable) drawable;
-                return downloadedDrawable.getBitmapDownloaderTask();
-            }
-        }
-        return null;
-    }
-
-    /**
-     * A fake Drawable that will be attached to the imageView while the download is in progress.
-     * <p/>
-     * <p>Contains a reference to the actual download task, so that a download task can be stopped
-     * if a new binding is required, and makes sure that only the last started download process can
-     * bind its result, independently of the download finish order.</p>
-     */
-    static class DownloadedDrawable extends BitmapDrawable {
-        private final WeakReference<BitmapDownloaderTask> bitmapDownloaderTaskReference;
-
-        public DownloadedDrawable(Resources res, Bitmap loaderBitmap, BitmapDownloaderTask bitmapDownloaderTask) {
-            super(res, loaderBitmap);
-            bitmapDownloaderTaskReference =
-                    new WeakReference<BitmapDownloaderTask>(bitmapDownloaderTask);
-        }
-
-        public BitmapDownloaderTask getBitmapDownloaderTask() {
-            return bitmapDownloaderTaskReference.get();
-        }
-    }
-
-    private void setImageBitmap(ImageView imageView, Bitmap bitmap) {
-        if (imageView != null) {
-            if (mFadeInBitmap) {
-                ObjectAnimator animator = ObjectAnimator.ofFloat(imageView, "alpha", 0.0f, 1.0f);
-                animator.setDuration(FADE_IN_TIME);
-                imageView.setImageBitmap(bitmap);
-                animator.start();
-            } else {
-                imageView.setImageBitmap(bitmap);
-            }
-        }
-    }
-
-    public boolean isDownloadDrawable(Drawable drawable) {
-        return drawable != null && (drawable instanceof DownloadedDrawable);
-    }
-
-    /**
-     * Cancels any pending work attached to the provided ImageView.
-     *
-     * @param imageView
-     */
-    public static void cancelWork(ImageView imageView) {
-        final BitmapDownloaderTask bitmapWorkerTask = getBitmapDownloaderTask(imageView);
-        if (bitmapWorkerTask != null) {
-            bitmapWorkerTask.cancel(true);
-            if (BuildConfig.DEBUG) {
-                //  final Object bitmapData = bitmapWorkerTask.mData;
-                Log.d(TAG, "cancelWork - cancelled");
-            }
-        }
-    }
-
-    private Bitmap initDefaultLoadingImage(int width, int height) {
-        Paint paint = new Paint();
-        paint.setAntiAlias(true);
-        paint.setColor(COLOR_BLACK_OPACITY_5_PERCENTAGE);
-        paint.setStyle(Paint.Style.FILL);
-        Bitmap bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
-        Canvas canvas = new Canvas(bitmap);
-        canvas.drawRect(0, 0, width, height, paint);
-        return bitmap;
-    }
-
-    /**
-     * Adds an {@link ImageCache} to this {@link com.appmobileos.android.utils.image.ImageDownloader} to handle disk and memory bitmap
-     * caching.
-     *
-     * @param fragmentManager
-     * @param cacheParams     The cache parameters to use for the image cache.
-     */
-    public void addImageCache(FragmentManager fragmentManager,
-                              ImageCache.ImageCacheParameters cacheParams) {
-        mImageCacheParams = cacheParams;
-        mImageCache = ImageCache.getInstance(fragmentManager, mImageCacheParams);
-        new CacheAsyncTask().execute(MESSAGE_INIT_DISK_CACHE);
-    }
-
     protected class CacheAsyncTask extends AsyncTask<Object, Void, Void> {
 
         @Override
@@ -459,42 +555,5 @@ public class ImageDownloader {
             }
             return null;
         }
-    }
-
-    protected void initDiskCacheInternal() {
-        if (mImageCache != null) {
-            mImageCache.initDiskCache();
-        }
-    }
-
-    protected void clearCacheInternal() {
-        if (mImageCache != null) {
-            mImageCache.clearCache();
-        }
-    }
-
-    protected void flushCacheInternal() {
-        if (mImageCache != null) {
-            mImageCache.flush();
-        }
-    }
-
-    protected void closeCacheInternal() {
-        if (mImageCache != null) {
-            mImageCache.close();
-            mImageCache = null;
-        }
-    }
-
-    public void clearCache() {
-        new CacheAsyncTask().execute(MESSAGE_CLEAR);
-    }
-
-    public void flushCache() {
-        new CacheAsyncTask().execute(MESSAGE_FLUSH);
-    }
-
-    public void closeCache() {
-        new CacheAsyncTask().execute(MESSAGE_CLOSE);
     }
 }

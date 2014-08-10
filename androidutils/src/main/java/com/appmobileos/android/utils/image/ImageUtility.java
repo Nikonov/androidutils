@@ -269,6 +269,19 @@ final public class ImageUtility {
         return BitmapFactory.decodeFile(pathFile, options);
     }
 
+    public static BitmapFactory.Options preparationOptions(InputStream stream,
+                                                           int reqWidth, int reqHeight) {
+        // First decode with inJustDecodeBounds=true to check dimensions
+        final BitmapFactory.Options options = new BitmapFactory.Options();
+        options.inJustDecodeBounds = true;
+        BitmapFactory.decodeStream(stream, null, options);
+        // Calculate inSampleSize
+        options.inSampleSize = ImageUtility.calculateInSampleSize(options, reqWidth, reqHeight);
+        // Decode bitmap with inSampleSize set
+        options.inJustDecodeBounds = false;
+        return options;
+    }
+
     /**
      * This is method based on the exercise "Loading Large Bitmaps Efficiently".
      * <a href="http://developer.android.com/training/displaying-bitmaps/load-bitmap.html#load-bitmap">More information</a>
@@ -333,6 +346,14 @@ final public class ImageUtility {
         result[0] = options.outWidth;
         result[1] = options.outHeight;
         return result;
+    }
+
+    public static Bitmap rotate(Bitmap bitmap, int degree) {
+        int width = bitmap.getWidth();
+        int height = bitmap.getHeight();
+        Matrix matrix = new Matrix();
+        matrix.postRotate(degree);
+        return Bitmap.createBitmap(bitmap, 0, 0, width, height, matrix, true);
     }
 
     /**
@@ -425,14 +446,6 @@ final public class ImageUtility {
         }
 
         return Bitmap.createBitmap(blurredBitmap, width, height, Bitmap.Config.RGB_565);
-    }
-
-    public static Bitmap rotate(Bitmap bitmap, int degree) {
-        int width = bitmap.getWidth();
-        int height = bitmap.getHeight();
-        Matrix matrix = new Matrix();
-        matrix.postRotate(degree);
-        return Bitmap.createBitmap(bitmap, 0, 0, width, height, matrix, true);
     }
 
 }

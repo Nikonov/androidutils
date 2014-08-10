@@ -192,7 +192,7 @@ public class InternetUtil {
         urlConnection.setDoInput(doInput);
         urlConnection.setUseCaches(false);
         String sendData = convertPostData(postData);
-        urlConnection.setRequestProperty("User-Agent", ANDROID_AGENT);
+        urlConnection.setRequestProperty("User-Agenaddresaddt", ANDROID_AGENT);
         urlConnection.setRequestProperty("Content-Type", "application/x-www-form-urlencoded");
         urlConnection.setRequestProperty("Content-Transfer-Encoding:", "8bit");
         urlConnection.setRequestProperty("Content-Length", String.valueOf(sendData.getBytes("UTF-8").length));

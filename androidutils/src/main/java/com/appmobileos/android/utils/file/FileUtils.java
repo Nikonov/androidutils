@@ -1,6 +1,7 @@
 package com.appmobileos.android.utils.file;
 
 import android.os.Environment;
+import android.util.Log;
 
 import com.appmobileos.android.utils.BuildConfig;
 
@@ -96,6 +97,7 @@ public class FileUtils {
 
     private static boolean checkFile(File file) throws IOException {
         if (!file.exists()) {
+            Log.d(TAG, "Created file = " + file.getAbsolutePath());
             boolean resultCreateDestinationFile = file.createNewFile();
             if (!resultCreateDestinationFile) {
                 throw new FileNotFoundException("File " + file.getAbsoluteFile() + " don't create in file system");
