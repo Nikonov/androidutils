@@ -3,7 +3,9 @@ package com.appmobileos.android.utils.network;
 import android.content.Context;
 import android.net.ConnectivityManager;
 import android.net.NetworkInfo;
+import android.net.wifi.WifiManager;
 import android.os.Build;
+import android.text.format.Formatter;
 import android.util.Log;
 
 import com.appmobileos.android.utils.BuildConfig;
@@ -204,5 +206,10 @@ public class InternetUtil {
         int responseCode = urlConnection.getResponseCode();
         urlConnection.disconnect();
         return responseCode;
+    }
+
+    public static String fountWifiIp(Context context){
+        WifiManager wm = (WifiManager) context.getSystemService(Context.WIFI_SERVICE);
+        return Formatter.formatIpAddress(wm.getConnectionInfo().getIpAddress());
     }
 }
